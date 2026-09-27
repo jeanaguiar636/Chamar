@@ -103,8 +103,6 @@
         }
 
         function conectarSignaling() {
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // Conecta diretamente ao seu Worker da Cloudflare
             websocket = new WebSocket(`wss://chamar.bmlimp8.workers.dev/ws?room=${roomId}`);
 
             websocket.onopen = () => {
@@ -117,24 +115,26 @@
 
                 if (!peerConnection) iniciarWebRTC();
 
-                if (message.offer) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    websocket.send(JSON.stringify({ answer: answer }));
-                } else if (message.answer) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
-                } else if (message.ice) {
-                    try {
+                try {
+                    if (message.offer) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        websocket.send(JSON.stringify({ answer: answer }));
+                    } else if (message.answer) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+                    } else if (message.ice) {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(message.ice));
-                    } catch (e) {
-                        console.error('Erro ao adicionar ICE candidate:', e);
                     }
+                } catch (err) {
+                    console.error('Erro ao processar mensagem do WebSocket:', err);
                 }
             };
         }
 
         function iniciarWebRTC() {
+            if (peerConnection) return;
+
             peerConnection = new RTCPeerConnection(servers);
 
             localStream.getTracks().forEach(track => {
@@ -145,6 +145,7 @@
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
+                    console.h?.('Vídeo remoto recebido com sucesso!');
                 }
             };
 
@@ -154,16 +155,13 @@
                 }
             };
 
-            // Se for o primeiro a entrar, cria a oferta
-            peerConnection.onnegotiationneeded = async () => {
-                try {
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
-                    websocket.send(JSON.stringify({ offer: offer }));
-                } catch (err) {
-                    console.error('Erro na negociação:', err);
-                }
-            };
+            // Cria a oferta automaticamente assim que o PeerConnection for iniciado
+            peerConnection.createOffer()
+                .then(offer => peerConnection.setLocalDescription(offer))
+                .then(() => {
+                    websocket.send(JSON.stringify({ offer: peerConnection.localDescription }));
+                })
+                .catch(err => console.error('Erro ao criar oferta:', err));
         }
     </script>
 </body>
