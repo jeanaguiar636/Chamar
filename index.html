@@ -16,20 +16,46 @@
             align-items: center;
         }
         h2 { margin-bottom: 10px; }
-        .room-box {
-            margin-bottom: 15px;
+        .menu-box {
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 360px;
             display: flex;
-            gap: 10px;
+            flex-direction: column;
+            gap: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
         input, button {
-            padding: 10px;
+            padding: 12px;
             font-size: 16px;
             border-radius: 5px;
             border: none;
         }
-        input { background: #333; color: #fff; }
-        button { background: #4CAF50; color: white; cursor: pointer; }
+        input { background: #333; color: #fff; width: 100%; box-sizing: border-box; }
+        button { background: #4CAF50; color: white; cursor: pointer; font-weight: bold; }
         button:hover { background: #45a049; }
+        .btn-secondary { background: #2196F3; }
+        .btn-secondary:hover { background: #0b7dda; }
+        #room-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .room-item {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            border: 1px solid #444;
+        }
+        .room-item:hover { background: #3a3a3a; border-color: #4CAF50; }
         #status {
             margin-bottom: 15px;
             padding: 8px 12px;
@@ -40,9 +66,10 @@
             border: 1px solid #444;
             max-width: 360px;
             text-align: center;
+            display: none;
         }
         .video-container {
-            display: flex;
+            display: none;
             gap: 15px;
             flex-wrap: wrap;
             justify-content: center;
@@ -64,14 +91,25 @@
 
     <h2>BriefRoom P2P</h2>
     
-    <div class="room-box" id="setup-box">
-        <input type="text" id="roomInput" placeholder="Nome da Sala">
-        <button onclick="entrarSala()">Entrar na Sala</button>
+    <!-- Menu Inicial -->
+    <div class="menu-box" id="menu-box">
+        <h3>Criar Sala</h3>
+        <input type="text" id="createRoomInput" placeholder="Nome da nova sala">
+        <button onclick="criarSala()">Criar e Entrar</button>
+
+        <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
+
+        <h3>Salas Disponíveis</h3>
+        <button class="btn-secondary" onclick="atualizarListaSalas()">Atualizar Lista de Salas</button>
+        <div id="room-list">
+            <span style="color: #888; font-size: 14px; text-align: center;">Clique em atualizar para ver as salas</span>
+        </div>
     </div>
 
-    <div id="status">Aguardando entrar na sala...</div>
+    <div id="status">Aguardando...</div>
 
-    <div class="video-container">
+    <!-- Ecrã de Vídeo -->
+    <div class="video-container" id="video-container">
         <div>
             <h3>Minha Câmara</h3>
             <video id="localVideo" autoplay muted playsinline></video>
@@ -88,6 +126,8 @@
         let websocket;
         let roomId;
 
+        const WORKER_URL = 'https://chamar.bmlimp8.workers.dev';
+
         const servers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -96,24 +136,57 @@
         };
 
         function atualizarStatus(texto) {
-            document.getElementById('status').innerText = texto;
+            const st = document.getElementById('status');
+            st.style.display = 'block';
+            st.innerText = texto;
         }
 
-        async function entrarSala() {
-            roomId = document.getElementById('roomInput').value.trim();
-            if (!roomId) {
-                alert('Por favor, escreva o nome da sala!');
+        async function atualizarListaSalas() {
+            const listDiv = document.getElementById('room-list');
+            listDiv.innerHTML = '<span style="color: #aaa; font-size: 14px; text-align: center;">A procurar salas...</span>';
+            
+            try {
+                const response = await fetch(`${WORKER_URL}/rooms`);
+                const rooms = await response.json();
+
+                if (rooms.length === 0) {
+                    listDiv.innerHTML = '<span style="color: #888; font-size: 14px; text-align: center;">Nenhuma sala ativa no momento</span>';
+                    return;
+                }
+
+                listDiv.innerHTML = '';
+                rooms.forEach(room => {
+                    const div = document.createElement('div');
+                    div.className = 'room-item';
+                    div.innerHTML = `<span>🚪 ${room}</span> <span style="color: #4CAF50; font-size: 12px; font-weight: bold;">Entrar &rarr;</span>`;
+                    div.onclick = () => entrarNaSala(room);
+                    listDiv.appendChild(div);
+                });
+            } catch (err) {
+                listDiv.innerHTML = '<span style="color: #ff5252; font-size: 14px; text-align: center;">Erro ao carregar salas</span>';
+            }
+        }
+
+        async function criarSala() {
+            const roomName = document.getElementById('createRoomInput').value.trim();
+            if (!roomName) {
+                alert('Escreva o nome da sala!');
                 return;
             }
+            entrarNaSala(roomName);
+        }
 
-            document.getElementById('setup-box').style.display = 'none';
+        async function entrarNaSala(nomeSala) {
+            roomId = nomeSala;
+            document.getElementById('menu-box').style.display = 'none';
+            document.getElementById('video-container').style.display = 'flex';
             atualizarStatus('A ligar à câmara e microfone...');
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 document.getElementById('localVideo').srcObject = localStream;
             } catch (err) {
-                atualizarStatus('Erro na câmara: ' + err.message);
+                alert('Erro na câmara/microfone: ' + err.message);
                 return;
             }
 
@@ -121,43 +194,40 @@
         }
 
         function conectarSignaling() {
-            atualizarStatus('A ligar ao servidor WebSocket...');
-            websocket = new WebSocket(`wss://chamar.bmlimp8.workers.dev/ws?room=${roomId}`);
+            atualizarStatus(`A entrar na sala "${roomId}"...`);
+            websocket = new WebSocket(`${WORKER_URL}/ws?room=${roomId}`);
 
             websocket.onopen = () => {
-                atualizarStatus('Conectado! A iniciar ligação P2P...');
+                atualizarStatus('Conectado! À espera do outro participante...');
                 iniciarWebRTC();
-                
-                // Aguarda 1 segundo e envia a oferta para garantir que o outro lado a recebe
-                setTimeout(() => {
-                    criarEEnviarOferta();
-                }, 1000);
+                setTimeout(() => criarEEnviarOferta(), 1000);
             };
 
             websocket.onerror = () => {
-                atualizarStatus('Erro na conexão WebSocket.');
+                atualizarStatus('Erro na conexão com o servidor.');
+            };
+
+            websocket.onclose = () => {
+                atualizarStatus('A sala foi fechada ou ficou cheia.');
             };
 
             websocket.onmessage = async (event) => {
                 const message = JSON.parse(event.data);
-
                 if (!peerConnection) iniciarWebRTC();
 
                 try {
                     if (message.offer) {
-                        atualizarStatus('A receber chamada...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
                         websocket.send(JSON.stringify({ answer: answer }));
                     } else if (message.answer) {
-                        atualizarStatus('Chamada aceite! Conectando...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
                     } else if (message.ice) {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(message.ice));
                     }
                 } catch (err) {
-                    console.error('Erro no processamento da mensagem:', err);
+                    console.error('Erro P2P:', err);
                 }
             };
         }
@@ -175,7 +245,7 @@
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
-                    atualizarStatus('Vídeo e áudio conectados com sucesso!');
+                    atualizarStatus('Chamada conectada com sucesso!');
                 }
             };
 
@@ -192,10 +262,9 @@
                     const offer = await peerConnection.createOffer();
                     await peerConnection.setLocalDescription(offer);
                     websocket.send(JSON.stringify({ offer: offer }));
-                    atualizarStatus('A procurar o outro participante...');
                 }
             } catch (err) {
-                console.error('Erro ao criar oferta:', err);
+                console.error('Erro oferta:', err);
             }
         }
     </script>
