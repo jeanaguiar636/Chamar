@@ -17,7 +17,7 @@
         }
         h2 { margin-bottom: 10px; }
         .room-box {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             display: flex;
             gap: 10px;
         }
@@ -30,6 +30,17 @@
         input { background: #333; color: #fff; }
         button { background: #4CAF50; color: white; cursor: pointer; }
         button:hover { background: #45a049; }
+        #status {
+            margin-bottom: 15px;
+            padding: 8px 12px;
+            background: #222;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #ff9800;
+            border: 1px solid #444;
+            max-width: 360px;
+            text-align: center;
+        }
         .video-container {
             display: flex;
             gap: 15px;
@@ -58,6 +69,8 @@
         <button onclick="entrarSala()">Entrar na Sala</button>
     </div>
 
+    <div id="status">Aguardando entrar na sala...</div>
+
     <div class="video-container">
         <div>
             <h3>Minha Câmara</h3>
@@ -82,6 +95,10 @@
             ]
         };
 
+        function atualizarStatus(texto) {
+            document.getElementById('status').innerText = texto;
+        }
+
         async function entrarSala() {
             roomId = document.getElementById('roomInput').value.trim();
             if (!roomId) {
@@ -90,12 +107,13 @@
             }
 
             document.getElementById('setup-box').style.display = 'none';
+            atualizarStatus('A ligar à câmara...');
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 document.getElementById('localVideo').srcObject = localStream;
             } catch (err) {
-                alert('Erro ao aceder à câmara/microfone: ' + err.message);
+                atualizarStatus('Erro na câmara: ' + err.message);
                 return;
             }
 
@@ -103,11 +121,16 @@
         }
 
         function conectarSignaling() {
+            atualizarStatus('A ligar ao servidor WebSocket...');
             websocket = new WebSocket(`wss://chamar.bmlimp8.workers.dev/ws?room=${roomId}`);
 
             websocket.onopen = () => {
-                console.log('Ligado ao servidor de sinalização.');
+                atualizarStatus('Ligado! À espera do outro participante...');
                 iniciarWebRTC();
+            };
+
+            websocket.onerror = (err) => {
+                atualizarStatus('Erro no WebSocket.');
             };
 
             websocket.onmessage = async (event) => {
@@ -117,17 +140,19 @@
 
                 try {
                     if (message.offer) {
+                        atualizarStatus('Recebeu oferta, a responder...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
                         websocket.send(JSON.stringify({ answer: answer }));
                     } else if (message.answer) {
+                        atualizarStatus('Ligação estabelecida!');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
                     } else if (message.ice) {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(message.ice));
                     }
                 } catch (err) {
-                    console.error('Erro ao processar mensagem do WebSocket:', err);
+                    atualizarStatus('Erro P2P: ' + err.message);
                 }
             };
         }
@@ -145,7 +170,7 @@
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
-                    console.h?.('Vídeo remoto recebido com sucesso!');
+                    atualizarStatus('Vídeo conectado com sucesso!');
                 }
             };
 
@@ -154,14 +179,19 @@
                     websocket.send(JSON.stringify({ ice: event.candidate }));
                 }
             };
+        }
 
-            // Cria a oferta automaticamente assim que o PeerConnection for iniciado
+        // Função manual para forçar quem entra primeiro a criar a chamada
+        function criarChamada() {
+            if (!peerConnection) iniciarWebRTC();
+            atualizarStatus('A criar chamada...');
             peerConnection.createOffer()
                 .then(offer => peerConnection.setLocalDescription(offer))
                 .then(() => {
                     websocket.send(JSON.stringify({ offer: peerConnection.localDescription }));
+                    atualizarStatus('Chamada enviada! À espera de resposta...');
                 })
-                .catch(err => console.error('Erro ao criar oferta:', err));
+                .catch(err => atualizarStatus('Erro ao criar oferta: ' + err.message));
         }
     </script>
 </body>
