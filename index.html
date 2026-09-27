@@ -107,7 +107,7 @@
             }
 
             document.getElementById('setup-box').style.display = 'none';
-            atualizarStatus('A ligar à câmara...');
+            atualizarStatus('A ligar à câmara e microfone...');
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -125,12 +125,17 @@
             websocket = new WebSocket(`wss://chamar.bmlimp8.workers.dev/ws?room=${roomId}`);
 
             websocket.onopen = () => {
-                atualizarStatus('Ligado! À espera do outro participante...');
+                atualizarStatus('Conectado! A iniciar ligação P2P...');
                 iniciarWebRTC();
+                
+                // Aguarda 1 segundo e envia a oferta para garantir que o outro lado a recebe
+                setTimeout(() => {
+                    criarEEnviarOferta();
+                }, 1000);
             };
 
-            websocket.onerror = (err) => {
-                atualizarStatus('Erro no WebSocket.');
+            websocket.onerror = () => {
+                atualizarStatus('Erro na conexão WebSocket.');
             };
 
             websocket.onmessage = async (event) => {
@@ -140,19 +145,19 @@
 
                 try {
                     if (message.offer) {
-                        atualizarStatus('Recebeu oferta, a responder...');
+                        atualizarStatus('A receber chamada...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
                         websocket.send(JSON.stringify({ answer: answer }));
                     } else if (message.answer) {
-                        atualizarStatus('Ligação estabelecida!');
+                        atualizarStatus('Chamada aceite! Conectando...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
                     } else if (message.ice) {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(message.ice));
                     }
                 } catch (err) {
-                    atualizarStatus('Erro P2P: ' + err.message);
+                    console.error('Erro no processamento da mensagem:', err);
                 }
             };
         }
@@ -170,7 +175,7 @@
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
-                    atualizarStatus('Vídeo conectado com sucesso!');
+                    atualizarStatus('Vídeo e áudio conectados com sucesso!');
                 }
             };
 
@@ -181,17 +186,17 @@
             };
         }
 
-        // Função manual para forçar quem entra primeiro a criar a chamada
-        function criarChamada() {
-            if (!peerConnection) iniciarWebRTC();
-            atualizarStatus('A criar chamada...');
-            peerConnection.createOffer()
-                .then(offer => peerConnection.setLocalDescription(offer))
-                .then(() => {
-                    websocket.send(JSON.stringify({ offer: peerConnection.localDescription }));
-                    atualizarStatus('Chamada enviada! À espera de resposta...');
-                })
-                .catch(err => atualizarStatus('Erro ao criar oferta: ' + err.message));
+        async function criarEEnviarOferta() {
+            try {
+                if (peerConnection.signalingState === "stable") {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    websocket.send(JSON.stringify({ offer: offer }));
+                    atualizarStatus('A procurar o outro participante...');
+                }
+            } catch (err) {
+                console.error('Erro ao criar oferta:', err);
+            }
         }
     </script>
 </body>
