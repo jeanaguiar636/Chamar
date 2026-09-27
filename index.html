@@ -135,7 +135,6 @@
 
         const WORKER_URL = 'https://chamar.bmlimp8.workers.dev';
 
-        // Servidores STUN reforçados para ajudar telemóveis em redes diferentes
         const servers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -254,9 +253,10 @@
                 peerConnection.addTrack(track, localStream);
             });
 
+            // Direciona o vídeo do outro telemóvel exatamente para a caixa de baixo (remoteVideo)
             peerConnection.ontrack = (event) => {
                 const remoteVideo = document.getElementById('remoteVideo');
-                if (remoteVideo.srcObject !== event.streams[0]) {
+                if (event.streams && event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
                     atualizarStatus('Vídeo conectado com sucesso!');
                 }
