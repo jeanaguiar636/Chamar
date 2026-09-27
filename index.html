@@ -56,6 +56,12 @@
             border: 1px solid #444;
         }
         .room-item:hover { background: #3a3a3a; border-color: #4CAF50; }
+        #room-title-display {
+            font-size: 18px;
+            color: #4CAF50;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
         #status {
             margin-bottom: 15px;
             padding: 8px 12px;
@@ -100,12 +106,13 @@
         <hr style="border: 0; border-top: 1px solid #444; margin: 10px 0;">
 
         <h3>Salas Disponíveis</h3>
-        <button class="btn-secondary" onclick="atualizarListaSalas()">Atualizar Lista de Salas</button>
+        <button class="btn-secondary" onclick="atualizarListaSalas()">Atualizar Lista</button>
         <div id="room-list">
-            <span style="color: #888; font-size: 14px; text-align: center;">Clique em atualizar para ver as salas</span>
+            <span style="color: #888; font-size: 14px; text-align: center;">Clique em atualizar</span>
         </div>
     </div>
 
+    <div id="room-title-display"></div>
     <div id="status">Aguardando...</div>
 
     <!-- Ecrã de Vídeo -->
@@ -128,10 +135,13 @@
 
         const WORKER_URL = 'https://chamar.bmlimp8.workers.dev';
 
+        // Servidores STUN reforçados para ajudar telemóveis em redes diferentes
         const servers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun.stunprotocol.org:3478' }
             ]
         };
 
@@ -143,14 +153,14 @@
 
         async function atualizarListaSalas() {
             const listDiv = document.getElementById('room-list');
-            listDiv.innerHTML = '<span style="color: #aaa; font-size: 14px; text-align: center;">A procurar salas...</span>';
+            listDiv.innerHTML = '<span style="color: #aaa; font-size: 14px; text-align: center;">A procurar...</span>';
             
             try {
                 const response = await fetch(`${WORKER_URL}/rooms`);
                 const rooms = await response.json();
 
                 if (rooms.length === 0) {
-                    listDiv.innerHTML = '<span style="color: #888; font-size: 14px; text-align: center;">Nenhuma sala ativa no momento</span>';
+                    listDiv.innerHTML = '<span style="color: #888; font-size: 14px; text-align: center;">Nenhuma sala ativa</span>';
                     return;
                 }
 
@@ -163,7 +173,7 @@
                     listDiv.appendChild(div);
                 });
             } catch (err) {
-                listDiv.innerHTML = '<span style="color: #ff5252; font-size: 14px; text-align: center;">Erro ao carregar salas</span>';
+                listDiv.innerHTML = '<span style="color: #ff5252; font-size: 14px; text-align: center;">Erro ao carregar</span>';
             }
         }
 
@@ -180,7 +190,8 @@
             roomId = nomeSala;
             document.getElementById('menu-box').style.display = 'none';
             document.getElementById('video-container').style.display = 'flex';
-            atualizarStatus('A ligar à câmara e microfone...');
+            document.getElementById('room-title-display').innerText = `Sala: ${roomId}`;
+            atualizarStatus('A ligar à câmara...');
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -194,21 +205,21 @@
         }
 
         function conectarSignaling() {
-            atualizarStatus(`A entrar na sala "${roomId}"...`);
+            atualizarStatus(`Conectando à sala "${roomId}"...`);
             websocket = new WebSocket(`${WORKER_URL}/ws?room=${roomId}`);
 
             websocket.onopen = () => {
-                atualizarStatus('Conectado! À espera do outro participante...');
+                atualizarStatus('Ligado ao servidor! Estabelecendo P2P...');
                 iniciarWebRTC();
-                setTimeout(() => criarEEnviarOferta(), 1000);
+                setTimeout(() => criarEEnviarOferta(), 1200);
             };
 
             websocket.onerror = () => {
-                atualizarStatus('Erro na conexão com o servidor.');
+                atualizarStatus('Erro na conexão WebSocket.');
             };
 
             websocket.onclose = () => {
-                atualizarStatus('A sala foi fechada ou ficou cheia.');
+                atualizarStatus('A sala foi fechada.');
             };
 
             websocket.onmessage = async (event) => {
@@ -217,11 +228,13 @@
 
                 try {
                     if (message.offer) {
+                        atualizarStatus('A receber chamada de outro participante...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                         const answer = await peerConnection.createAnswer();
                         await peerConnection.setLocalDescription(answer);
                         websocket.send(JSON.stringify({ answer: answer }));
                     } else if (message.answer) {
+                        atualizarStatus('Resposta recebida! A conectar vídeo...');
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
                     } else if (message.ice) {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(message.ice));
@@ -245,7 +258,7 @@
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
-                    atualizarStatus('Chamada conectada com sucesso!');
+                    atualizarStatus('Vídeo conectado com sucesso!');
                 }
             };
 
@@ -262,6 +275,7 @@
                     const offer = await peerConnection.createOffer();
                     await peerConnection.setLocalDescription(offer);
                     websocket.send(JSON.stringify({ offer: offer }));
+                    atualizarStatus('Aguardando o outro telemóvel...');
                 }
             } catch (err) {
                 console.error('Erro oferta:', err);
