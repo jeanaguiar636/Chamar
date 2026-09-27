@@ -5,104 +5,163 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BriefRoom - Videoconferência P2P</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        h1 { margin-bottom: 10px; }
-        .room-box { margin-bottom: 20px; }
-        input, button { padding: 10px; font-size: 16px; border-radius: 5px; border: none; margin: 5px; }
-        button { background: #0070f3; color: white; cursor: pointer; }
-        button:hover { background: #0051a2; }
-        .video-grid { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-top: 20px; }
-        video { width: 400px; height: 300px; background: #000; border-radius: 10px; object-fit: cover; border: 2px solid #333; }
-        .hidden { display: none; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #121212;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h2 { margin-bottom: 10px; }
+        .room-box {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        input, button {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: none;
+        }
+        input { background: #333; color: #fff; }
+        button { background: #4CAF50; color: white; cursor: pointer; }
+        button:hover { background: #45a049; }
+        .video-container {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 800px;
+            width: 100%;
+        }
+        video {
+            width: 100%;
+            max-width: 360px;
+            height: 270px;
+            background: #000;
+            border-radius: 8px;
+            border: 2px solid #333;
+            object-fit: cover;
+        }
     </style>
 </head>
 <body>
 
-    <h1>BriefRoom</h1>
-    <div id="setup" class="room-box">
-        <input type="text" id="roomInput" placeholder="Nome da Sala (ex: sala123)">
-        <button onclick="joinRoom()">Entrar na Sala</button>
+    <h2>BriefRoom P2P</h2>
+    
+    <div class="room-box" id="setup-box">
+        <input type="text" id="roomInput" placeholder="Nome da Sala">
+        <button onclick="entrarSala()">Entrar na Sala</button>
     </div>
 
-    <div id="call-container" class="video-grid hidden">
+    <div class="video-container">
         <div>
-            <h3>Minha câmara</h3>
+            <h3>Minha Câmara</h3>
             <video id="localVideo" autoplay muted playsinline></video>
         </div>
         <div>
-            <h3>Outra pessoa</h3>
+            <h3>Outra Pessoa</h3>
             <video id="remoteVideo" autoplay playsinline></video>
         </div>
     </div>
 
     <script>
-        const wsUrl = "wss://chamar.bmlimp8.workers.dev/ws";
-        let ws, localStream, peerConnection, roomId;
-        
-        const rtcConfig = {
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        let localStream;
+        let peerConnection;
+        let websocket;
+        let roomId;
+
+        const servers = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
         };
 
-        async function joinRoom() {
+        async function entrarSala() {
             roomId = document.getElementById('roomInput').value.trim();
-            if (!roomId) return alert("Digite o nome da sala!");
+            if (!roomId) {
+                alert('Por favor, escreva o nome da sala!');
+                return;
+            }
 
-            document.getElementById('setup').classList.add('hidden');
-            document.getElementById('call-container').classList.remove('hidden');
+            document.getElementById('setup-box').style.display = 'none';
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 document.getElementById('localVideo').srcObject = localStream;
             } catch (err) {
-                alert("Erro ao aceder à câmara/microfone: " + err.message);
+                alert('Erro ao aceder à câmara/microfone: ' + err.message);
                 return;
             }
 
-            ws = new WebSocket(`${wsUrl}?room=${roomId}`);
+            conectarSignaling();
+        }
 
-            ws.onmessage = async (event) => {
+        function conectarSignaling() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // Conecta diretamente ao seu Worker da Cloudflare
+            websocket = new WebSocket(`wss://chamar.bmlimp8.workers.dev/ws?room=${roomId}`);
+
+            websocket.onopen = () => {
+                console.log('Ligado ao servidor de sinalização.');
+                iniciarWebRTC();
+            };
+
+            websocket.onmessage = async (event) => {
                 const message = JSON.parse(event.data);
 
-                if (!peerConnection) createPeerConnection();
+                if (!peerConnection) iniciarWebRTC();
 
                 if (message.offer) {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-                    ws.send(JSON.stringify({ answer }));
+                    websocket.send(JSON.stringify({ answer: answer }));
                 } else if (message.answer) {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
                 } else if (message.ice) {
                     try {
                         await peerConnection.addIceCandidate(new RTCIceCandidate(message.ice));
                     } catch (e) {
-                        console.error("Erro ao adicionar ICE", e);
+                        console.error('Erro ao adicionar ICE candidate:', e);
                     }
                 }
             };
-
-            ws.onopen = async () => {
-                createPeerConnection();
-                const offer = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offer);
-                ws.send(JSON.stringify({ offer }));
-            };
         }
 
-        function createPeerConnection() {
-            peerConnection = new RTCPeerConnection(rtcConfig);
+        function iniciarWebRTC() {
+            peerConnection = new RTCPeerConnection(servers);
 
             localStream.getTracks().forEach(track => {
                 peerConnection.addTrack(track, localStream);
             });
 
             peerConnection.ontrack = (event) => {
-                document.getElementById('remoteVideo').srcObject = event.streams[0];
+                const remoteVideo = document.getElementById('remoteVideo');
+                if (remoteVideo.srcObject !== event.streams[0]) {
+                    remoteVideo.srcObject = event.streams[0];
+                }
             };
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    ws.send(JSON.stringify({ ice: event.candidate }));
+                    websocket.send(JSON.stringify({ ice: event.candidate }));
+                }
+            };
+
+            // Se for o primeiro a entrar, cria a oferta
+            peerConnection.onnegotiationneeded = async () => {
+                try {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    websocket.send(JSON.stringify({ offer: offer }));
+                } catch (err) {
+                    console.error('Erro na negociação:', err);
                 }
             };
         }
